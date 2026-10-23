@@ -62,6 +62,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Preserve native pixels when exporting an unannotated capture without a
+  backdrop. Fractional selection edges no longer smooth-resize the whole
+  image just to remove an outward-rounded boundary pixel.
+
 - Run OCR's tesseract on one thread. Its OpenMP pool spun on every core and
   made text grabs slower, not faster: a full-screen read drops from about
   1.7 s to 1.0 s with a third of the CPU time, and reads the same text.
