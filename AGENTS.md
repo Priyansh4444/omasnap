@@ -143,14 +143,10 @@ wayland wayland-protocols libdeflate wl-clipboard xdg-utils tesseract tesseract-
    attaches the build artifact to the release automatically.
    Copy the new changelog section into the GitHub release notes so users
    can read the changes alongside the download.
-4. **Update omarchy-pkgs on every new version release.** In the
-   [omarchy-pkgs](https://github.com/omacom-io/omarchy-pkgs) fork
-   (`pkgbuilds/omasnap/`):
-   - Set `pkgver` in `PKGBUILD` to the new version.
-   - Replace `sha256sums` with the hash of
-     `https://github.com/tobi/omasnap/archive/refs/tags/v<version>.tar.gz`
-     (`curl -sL <url> | sha256sum`).
-   - Commit on a branch and open a PR to `omacom-io/omarchy-pkgs`.
+4. omarchy-pkgs picks up the new GitHub release on its own: the hourly
+   Sync Upstream run watches `omacom/omasnap` releases, bumps
+   `pkgbuilds/omasnap/` (`pkgver` and checksum), and auto-merges once the
+   build passes. No manual omarchy-pkgs PR is needed.
 
 See `README.md` for user-facing features, keybindings, and install
 instructions — keep it in sync when behavior changes.
