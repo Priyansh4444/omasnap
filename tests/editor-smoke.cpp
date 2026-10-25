@@ -58,6 +58,7 @@
 #include <QPlainTextEdit>
 #include <QPixmap>
 #include <QScrollBar>
+#include <QLocale>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QWheelEvent>
@@ -2741,6 +2742,56 @@ bool runPostCaptureChecks(QString &error, bool autosave) {
         reopened.renderCurrentOutput() != next.renderCurrentOutput()) {
       error = QStringLiteral("The recent capture did not retain its editable annotation");
       return false;
+    }
+  }
+  // Under --notify, a saved capture is announced with Open and Edit
+  // buttons for the saved PNG instead of a timed preview, both fresh and
+  // when saved from the editor.
+  if (autosave) {
+    qputenv("OMASNAP_NOTIFY", "1");
+    const auto restoreNotify = qScopeGuard([] { qunsetenv("OMASNAP_NOTIFY"); });
+    // Keep the wording English whatever this desktop's language is.
+    if (!executable(QStringLiteral("omarchy-i18n"),
+                    QByteArrayLiteral("#!/bin/sh\nprintf '%s' \"$1\"\n")))
+      return false;
+    for (const bool fresh : {true, false}) {
+      CaptureEditor editor(capture, fresh ? Mode::Region : Mode::File,
+                           fresh ? QuickOutputMode::CopyAndPreview
+                                 : QuickOutputMode::None);
+      QString pin;
+      QStringList toast;
+      editor.setProcessLauncherForTest([&](const QString &program,
+                                           const QStringList &args) {
+        if (program == QStringLiteral("omarchy-notification-send"))
+          toast = args;
+        else
+          pin = args.last();
+        return true;
+      });
+      editor.resize(800, 600);
+      editor.show();
+      if (fresh) {
+        QTest::mousePress(&editor, Qt::LeftButton, Qt::NoModifier, {100, 100});
+        QTest::mouseMove(&editor, {400, 300});
+        QTest::mouseRelease(&editor, Qt::LeftButton, Qt::NoModifier, {400, 300});
+      }
+      const QImage expected = editor.renderCurrentOutput();
+      if (!fresh)
+        QTest::keyClick(&editor, Qt::Key_S, Qt::ControlModifier);
+      editor.waitForExport();
+      const QString saved = toast.isEmpty() ? QString() : toast.last();
+      const auto removeSaved = qScopeGuard([&] { QFile::remove(saved); });
+      // Edit reopens the capture's layers from the recent shelf.
+      const qsizetype recent = toast.indexOf(QStringLiteral("--recent"));
+      if (editor.isVisible() || !pin.isEmpty() ||
+          !toast.contains(QStringLiteral("Open")) || recent < 0 ||
+          !findRecentSnap(toast.value(recent + 1)) ||
+          QImage(saved).convertToFormat(expected.format()) != expected) {
+        error = QStringLiteral("--notify did not announce the saved %1 capture: %2")
+                    .arg(fresh ? QStringLiteral("fresh") : QStringLiteral("edited"),
+                         toast.join(QStringLiteral(" | ")));
+        return false;
+      }
     }
   }
   // Both picker shortcuts keep every capture kind in the editor without
@@ -6296,6 +6347,65 @@ bool runNotificationArgvCheck(QString &error) {
   const qsizetype image = saved.indexOf(QStringLiteral("--image"));
   if (image < 0 || saved.at(image + 1) != imagePath) {
     error = QStringLiteral("--image does not carry the saved path");
+    return false;
+  }
+  // Under --notify, Open and Edit are buttons that both receive the path
+  // through --with, which must therefore end the line as one word.
+  QTemporaryDir directory;
+  const QString shotPath = directory.filePath(QStringLiteral("it's a shot 1.png"));
+  QImage shot(1920, 1080, QImage::Format_RGB32);
+  shot.fill(Qt::darkCyan);
+  if (!directory.isValid() || !shot.save(shotPath))
+    return false;
+  const QStringList toast = captureNotificationArguments(
+      QStringLiteral("Screenshot saved"), shotPath, {}, true);
+  const qsizetype open = toast.indexOf(QStringLiteral("Open"));
+  const qsizetype edit = toast.indexOf(QStringLiteral("Edit"));
+  const qsizetype headline = toast.indexOf(QStringLiteral("Screenshot saved"));
+  if (toast.contains(QStringLiteral("--exec")) || open < 1 || edit < 1 ||
+      toast.at(open - 1) != QStringLiteral("--action") ||
+      toast.at(open + 1) != QStringLiteral("xdg-open") ||
+      toast.at(edit - 1) != QStringLiteral("--action") ||
+      !toast.at(edit + 1).endsWith(QStringLiteral("omasnap")) ||
+      toast.at(toast.indexOf(QStringLiteral("--image")) + 1) != shotPath ||
+      toast.at(toast.size() - 2) != QStringLiteral("--with") ||
+      toast.last() != shotPath ||
+      !toast.at(headline + 1).startsWith(QLocale().toString(1920) +
+                                         QStringLiteral(" × ") +
+                                         QLocale().toString(1080))) {
+    error = QStringLiteral("--notify toast argv is wrong: %1")
+                .arg(toast.join(QStringLiteral(" | ")));
+    return false;
+  }
+  // Under --notify the wording comes from Omarchy's catalog, and an entry
+  // Omarchy lacks (omarchy-i18n echoes its key) stays English.
+  QFile i18n(directory.filePath(QStringLiteral("omarchy-i18n")));
+  if (!i18n.open(QIODevice::WriteOnly) ||
+      i18n.write("#!/bin/sh\ncase \"$1\" in\n"
+                 "  capture.screenshotSaved) printf 'Sk\303\246rmbillede gemt' ;;\n"
+                 "  capture.screenshotOpen) printf '\303\205bn' ;;\n"
+                 "  *) printf '%s' \"$1\" ;;\nesac\n") < 0 ||
+      !i18n.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner))
+    return false;
+  i18n.close();
+  const QByteArray oldPath = qgetenv("PATH");
+  const auto restore = qScopeGuard([&] {
+    qputenv("PATH", oldPath);
+    qunsetenv("OMASNAP_NOTIFY");
+  });
+  qputenv("PATH", directory.path().toUtf8() + ':' + oldPath);
+  qputenv("OMASNAP_NOTIFY", "1");
+  QStringList worded;
+  sendCaptureNotification(QStringLiteral("Screenshot saved"), shotPath, {},
+                          [&](const QString &, const QStringList &args) {
+                            worded = args;
+                            return true;
+                          });
+  if (!worded.contains(QStringLiteral("Skærmbillede gemt")) ||
+      !worded.contains(QStringLiteral("Åbn")) ||
+      !worded.contains(QStringLiteral("Edit"))) {
+    error = QStringLiteral("--notify toast did not use Omarchy's wording: %1")
+                .arg(worded.join(QStringLiteral(" | ")));
     return false;
   }
   sendCaptureNotification(QStringLiteral("smoke"));

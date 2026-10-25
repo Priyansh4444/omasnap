@@ -170,6 +170,9 @@ int main(int argc, char **argv) {
   configureCaptureCommandLine(parser);
   parser.process(application);
   startupTimingMark("command line parsed");
+  // The environment carries --notify to the pins and editors this starts.
+  if (parser.isSet(QStringLiteral("notify")))
+    qputenv("OMASNAP_NOTIFY", "1");
   // After parsing: --help and --version exit() inside process(), which skips
   // ~QApplication's wait for the theme loader thread and crashes its teardown.
   initializeChromeTheme();
@@ -265,6 +268,15 @@ int main(int argc, char **argv) {
   if (clipboardInput && (!filePath.isEmpty() || requestedModes > 0)) {
     qCritical() << "Clipboard input cannot be combined with another target";
     return 2;
+  }
+  // A --notify toast's Edit reopens its capture's layers from the recent
+  // shelf, like the overlay's recent cards; the image given alongside is the
+  // fallback once the shelf has dropped that capture.
+  std::optional<RecentSnap> reopenedRecent;
+  if (parser.isSet(QStringLiteral("recent"))) {
+    reopenedRecent = findRecentSnap(parser.value(QStringLiteral("recent")));
+    if (reopenedRecent)
+      filePath = reopenedRecent->sourcePath;
   }
   const bool editingImage = clipboardInput || !filePath.isEmpty();
   if (editingImage && quickOutputMode != QuickOutputMode::None) {
@@ -426,6 +438,8 @@ int main(int argc, char **argv) {
   CaptureEditor editor(std::move(capture), captureMode, quickOutputMode,
                        restoredLog, nullptr, editorWindowMode && !editingImage);
   editor.setPinDocument(std::move(pinDocument));
+  if (reopenedRecent)
+    editor.setEditingRecent(std::move(*reopenedRecent));
   startupTimingMark("CaptureEditor constructed");
   editor.setScreen(targetScreen);
   if (windowedEditorProcess && editingImage) {
