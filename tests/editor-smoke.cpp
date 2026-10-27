@@ -12793,7 +12793,7 @@ int main(int argc, char **argv) {
   }
   if (!runInputMethodCaretCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
-    return 226;
+    return 236;
   }
   if (!runDraftViewLockCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
