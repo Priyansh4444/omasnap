@@ -4296,7 +4296,8 @@ bool runForeignSidecarChecks(QString &error) {
   };
   for (const Foreign &foreign : {
            Foreign{"report", "{\"title\":\"quarterly report\",\"rows\":3}\n"},
-           Foreign{"list", "[1, 2, 3]\n"}}) {
+           Foreign{"list", "[1, 2, 3]\n"},
+           Foreign{"delta", "{\"ops\":[{\"insert\":\"hello\\n\"}]}\n"}}) {
     const QString png =
         folder.filePath(QString::fromLatin1(foreign.name) + QStringLiteral(".png"));
     if (!image.save(png) || !writeBytes(operationLogPath(png), foreign.json)) {

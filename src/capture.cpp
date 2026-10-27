@@ -2573,10 +2573,11 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
   if (root.value(QStringLiteral("version")).toInt() != 1 ||
       !root.value(QStringLiteral("ops")).isArray()) {
     error = QStringLiteral("Unsupported operation log version");
-    // Every log omasnap writes has an ops array; an object without one is
-    // some other program's JSON that merely shares the image's name.
+    // Every log omasnap writes has a numeric version and an ops array; an
+    // object without both is some other program's JSON sharing the name.
     if (notOperationLog)
-      *notOperationLog = !root.contains(QStringLiteral("ops"));
+      *notOperationLog = !root.value(QStringLiteral("version")).isDouble() ||
+                         !root.value(QStringLiteral("ops")).isArray();
     return false;
   }
   OperationLog loaded;

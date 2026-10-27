@@ -265,9 +265,10 @@ private:
 [[nodiscard]] bool saveOperationLog(const QString &path, const OperationLog &log,
                                     QString &error);
 /** `notOperationLog`, when given, is set when the file is not an omasnap
- *  operation log at all: well-formed JSON that is not an object, or an
- *  object with no ops. Text that does not parse, or a log of another
- *  version, leaves it false: it may be omasnap's own, cut short or newer. */
+ *  operation log at all: well-formed JSON that is not an object with a
+ *  numeric version and an ops array. Text that does not parse, or a log of
+ *  another version, leaves it false: it may be omasnap's own, cut short or
+ *  newer. */
 [[nodiscard]] bool loadOperationLog(const QString &path, OperationLog &log,
                                     QString &error,
                                     bool *notOperationLog = nullptr);
