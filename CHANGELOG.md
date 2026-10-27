@@ -5,10 +5,16 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+## 1.24.0
+
 ### Changed
 
 - Closing the shortcuts card hides it entirely instead of leaving a Shortcuts pill, and it stays closed for later captures. `?` brings it back.
 - Capture previews and `--notify` notifications fade after 7 seconds of idle time instead of 10.
+
+### Fixed
+
+- Edit on a preview or pin opens the editor on the monitor showing that preview, not the primary one.
 
 ## 1.23.0
 
@@ -236,7 +242,8 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Keep the toolbar, capture tabs, hotkey legend, and canvas geometry aligned.
 - Remove the pixels actually covered by a cut-band drag.
 
-[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.23.0...main)
+[Unreleased changes](https://github.com/omacom/omasnap/compare/v1.24.0...main)
+· [1.24.0 changes](https://github.com/omacom/omasnap/compare/v1.23.0...v1.24.0)
 · [1.23.0 changes](https://github.com/omacom/omasnap/compare/v1.22.0...v1.23.0)
 · [1.22.0 changes](https://github.com/omacom/omasnap/compare/v1.21.0...v1.22.0)
 · [1.21.0 changes](https://github.com/omacom/omasnap/compare/v1.20.1...v1.21.0)
