@@ -4247,15 +4247,25 @@ void CaptureEditor::finish(OutputMode mode) {
         result.error = error;
         return;
       }
-      if (savedPreview || autosave) {
-        const QString preview = launchPinnedCapture(
+      // Under --notify, the toast is the completion UI for every saved
+      // capture; otherwise a fresh or edited capture keeps its timed preview.
+      const bool preview = (savedPreview || autosave) && !notifySavedCaptures();
+      if (preview) {
+        const QString pin = launchPinnedCapture(
             image, renderedCaptureLogicalSize(captureCopy, image.size()), false,
             PinLifetime::Timed, result.error, launcher, log.recentId, result.saved);
-        if (preview.isEmpty()) {
+        if (pin.isEmpty()) {
           result.error = QStringLiteral("Saved to %1, but could not show its preview: %2")
                              .arg(result.saved, result.error);
           return;
         }
+      } else {
+        sendCaptureNotification(mode == OutputMode::Save
+                                    ? QStringLiteral("Screenshot saved")
+                                    : QStringLiteral("Screenshot saved and copied"),
+                                result.saved, log.recentId, launcher);
+      }
+      if (savedPreview || autosave) {
         result.savedPreview = true;
         if (document)
           document->finishSavedPreview(log, result.saved);
@@ -4281,23 +4291,15 @@ void CaptureEditor::completeFinish(const FinishResult &result) {
   }
   snapshotPath_.clear();
   if (result.savedPreview) {
-    // The saved preview is the completion UI, and its originating preview
-    // has already been retired by the worker.
+    // The worker's toast or saved preview is the completion UI, and the
+    // originating preview already records the saved path.
     close();
     return;
   }
-  if (result.mode == OutputMode::CopyAndPreview) {
-    // The pin is the completion UI; a second notification would repeat it.
-    dismissEditor(false);
-    return;
-  }
+  // A copy-only preview's pin, or a saved capture's toast from the worker,
+  // is the completion UI; only a plain copy still needs telling.
   if (result.mode == OutputMode::Copy)
     sendCaptureNotification(QStringLiteral("Screenshot copied to clipboard"));
-  else if (result.mode == OutputMode::Save)
-    sendCaptureNotification(QStringLiteral("Screenshot saved"), result.saved);
-  else
-    sendCaptureNotification(QStringLiteral("Screenshot saved and copied"),
-                            result.saved);
   dismissEditor(false);
 }
 
@@ -4464,7 +4466,7 @@ void CaptureEditor::keyPressEvent(QKeyEvent *event) {
   if (event->key() == Qt::Key_Question &&
       !(event->modifiers() & (Qt::ControlModifier | Qt::AltModifier |
                               Qt::MetaModifier)) &&
-      !textEditing() && shortcutGuide_->isVisible()) {
+      !textEditing() && shortcutGuideAllowed()) {
     if (!event->isAutoRepeat())
       shortcutGuide_->setExpanded(!shortcutGuide_->expanded());
     event->accept();
@@ -8016,13 +8018,16 @@ void CaptureEditor::paintEdit(QPainter &painter) {
   drawMeasureBadge(painter, rect(), cursor_, measurementText());
 }
 
+bool CaptureEditor::shortcutGuideAllowed() const {
+  return !windowedPresentation_ && !scrollPanel_ && phase_ != Phase::Export;
+}
+
 void CaptureEditor::paintEvent(QPaintEvent *event) {
-  const bool showGuide = !windowedPresentation_ && !scrollPanel_ &&
-                         phase_ != Phase::Export;
+  const bool showGuide = shortcutGuideAllowed();
   if (showGuide)
     shortcutGuide_->setEntries(phase_ == Phase::Edit ? editorHotkeyEntries()
                                                    : captureHotkeyEntries());
-  shortcutGuide_->setVisible(showGuide);
+  shortcutGuide_->setVisible(showGuide && shortcutGuide_->expanded());
   const bool firstPaint = !firstPaintReported_;
   if (firstPaint)
     startupTimingMark("first overlay paint started");
