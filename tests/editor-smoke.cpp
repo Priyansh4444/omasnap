@@ -4296,7 +4296,6 @@ bool runForeignSidecarChecks(QString &error) {
   };
   for (const Foreign &foreign : {
            Foreign{"report", "{\"title\":\"quarterly report\",\"rows\":3}\n"},
-           Foreign{"notes", "not json at all\n"},
            Foreign{"list", "[1, 2, 3]\n"}}) {
     const QString png =
         folder.filePath(QString::fromLatin1(foreign.name) + QStringLiteral(".png"));
@@ -4351,6 +4350,22 @@ bool runForeignSidecarChecks(QString &error) {
   OperationLog brokenLog;
   if (loadSidecarOperationLog(broken, brokenLog, loadError)) {
     error = QStringLiteral("A broken omasnap sidecar log was silently ignored");
+    return false;
+  }
+  // So is one cut short, which no longer parses as JSON at all.
+  const QString truncated = folder.filePath(QStringLiteral("truncated.png"));
+  if (!image.save(truncated) ||
+      !writeBytes(operationLogPath(truncated),
+                  "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"annot")) {
+    error = QStringLiteral("Could not write the truncated sidecar fixture");
+    return false;
+  }
+  OperationLog truncatedLog;
+  QString truncatedError;
+  if (loadSidecarOperationLog(truncated, truncatedLog, truncatedError) ||
+      truncatedError.isEmpty()) {
+    error = QStringLiteral(
+        "A truncated omasnap sidecar log was silently ignored");
     return false;
   }
   return true;

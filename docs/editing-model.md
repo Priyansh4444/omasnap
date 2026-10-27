@@ -77,7 +77,8 @@ Flattened PNG exports carry their complete logical dimensions in an
 File and clipboard imports read it without needing the private sidecar;
 an editable document's operation log takes precedence. A same-name `.json`
 beside an opened image that is not an omasnap operation log (another
-program's file) is ignored, and the image opens without layers. Untagged images retain
+program's file) is ignored, and the image opens without layers; one that
+does not parse as JSON still fails, since it may be an omasnap log cut short. Untagged images retain
 their pixel dimensions: print DPI does not establish screenshot display scale.
 
 ## The two exceptions, and why they're still safe

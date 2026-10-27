@@ -2563,8 +2563,10 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
   if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
     error = QStringLiteral("Could not parse operation log: %1")
                 .arg(parseError.errorString());
+    // Well-formed JSON that is not an object is another program's; text that
+    // does not parse may be omasnap's own log, cut short.
     if (notOperationLog)
-      *notOperationLog = true;
+      *notOperationLog = parseError.error == QJsonParseError::NoError;
     return false;
   }
   const QJsonObject root = document.object();
