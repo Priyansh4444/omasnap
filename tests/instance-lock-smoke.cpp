@@ -229,6 +229,18 @@ bool runReusedPidStaleLockCheck(const QString &root, QString &error) {
     return false;
   }
   file.close();
+  // Qt alone must refuse this lock (its pid is alive and runs this program),
+  // or the reclaim below would pass without the flock probe.
+  {
+    QLockFile plain(lockPath);
+    plain.setStaleLockTime(0);
+    if (plain.tryLock(0)) {
+      plain.unlock();
+      error = QStringLiteral("Qt reclaimed the reused-pid lock by itself, so "
+                             "this check cannot test the flock probe");
+      return false;
+    }
+  }
 
   QLockFile lock(lockPath);
   const InstanceLockResult result =
