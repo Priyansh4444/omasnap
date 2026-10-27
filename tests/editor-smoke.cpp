@@ -4352,21 +4352,27 @@ bool runForeignSidecarChecks(QString &error) {
     error = QStringLiteral("A broken omasnap sidecar log was silently ignored");
     return false;
   }
-  // So is one cut short, which no longer parses as JSON at all.
-  const QString truncated = folder.filePath(QStringLiteral("truncated.png"));
-  if (!image.save(truncated) ||
-      !writeBytes(operationLogPath(truncated),
-                  "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"annot")) {
-    error = QStringLiteral("Could not write the truncated sidecar fixture");
-    return false;
-  }
-  OperationLog truncatedLog;
-  QString truncatedError;
-  if (loadSidecarOperationLog(truncated, truncatedLog, truncatedError) ||
-      truncatedError.isEmpty()) {
-    error = QStringLiteral(
-        "A truncated omasnap sidecar log was silently ignored");
-    return false;
+  // So is one cut short or emptied, which no longer parses as JSON, and one
+  // from another version of omasnap.
+  for (const Foreign &damaged : {
+           Foreign{"truncated",
+                   "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"annot"},
+           Foreign{"empty", ""},
+           Foreign{"newer", "{\"version\":2,\"index\":0,\"ops\":[]}\n"}}) {
+    const QString png =
+        folder.filePath(QString::fromLatin1(damaged.name) + QStringLiteral(".png"));
+    if (!image.save(png) || !writeBytes(operationLogPath(png), damaged.json)) {
+      error = QStringLiteral("Could not write the damaged sidecar fixture");
+      return false;
+    }
+    OperationLog damagedLog;
+    QString damagedError;
+    if (loadSidecarOperationLog(png, damagedLog, damagedError) ||
+        damagedError.isEmpty()) {
+      error = QStringLiteral("A %1 omasnap sidecar log was silently ignored")
+                  .arg(QString::fromLatin1(damaged.name));
+      return false;
+    }
   }
   return true;
 }

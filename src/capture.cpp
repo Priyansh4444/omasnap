@@ -2570,13 +2570,13 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
     return false;
   }
   const QJsonObject root = document.object();
-  // Every log omasnap writes has version 1 and an ops array; anything else
-  // is some other program's JSON that merely shares the image's name.
   if (root.value(QStringLiteral("version")).toInt() != 1 ||
       !root.value(QStringLiteral("ops")).isArray()) {
     error = QStringLiteral("Unsupported operation log version");
+    // Every log omasnap writes has an ops array; an object without one is
+    // some other program's JSON that merely shares the image's name.
     if (notOperationLog)
-      *notOperationLog = true;
+      *notOperationLog = !root.contains(QStringLiteral("ops"));
     return false;
   }
   OperationLog loaded;
