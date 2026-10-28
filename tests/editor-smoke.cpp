@@ -54,6 +54,7 @@
 #include <QFileInfo>
 #include <QFontInfo>
 #include <QFontMetricsF>
+#include <QInputMethod>
 #include <QKeyEvent>
 #include <QLockFile>
 #include <QPainter>
@@ -3801,6 +3802,55 @@ bool runNativeCaretHiddenCheck(QApplication &application, QString &error) {
   return true;
 }
 
+/** Input methods still get the draft's caret while the native one is hidden. */
+bool runInputMethodCaretCheck(QApplication &application, QString &error) {
+  CaptureData capture;
+  capture.monitor.name = QStringLiteral("TEST");
+  capture.monitor.geometry = {0, 0, 800, 600};
+  capture.monitor.pixelSize = {800, 600};
+  capture.monitor.scale = 1.0;
+  capture.source = QImage(300, 200, QImage::Format_ARGB32_Premultiplied);
+  capture.source.fill(Qt::white);
+  capture.previewSize = capture.source.size();
+
+  CaptureEditor editor(capture, CaptureEditor::CaptureMode::File);
+  editor.resize(800, 600);
+  editor.show();
+  application.processEvents();
+  QTest::keyClick(&editor, Qt::Key_T);
+  QTest::mouseClick(&editor, Qt::LeftButton, Qt::NoModifier,
+                    editor.toScreenPointForTest(QPointF(80, 80)).toPoint());
+  application.processEvents();
+  auto *draft = qobject_cast<QPlainTextEdit *>(QApplication::focusWidget());
+  if (!draft) {
+    error = QStringLiteral(
+        "Text draft did not open for the input method caret check");
+    return false;
+  }
+  // fcitx5's Qt plugin places its candidate window from this rectangle, and
+  // QInputMethod leaves an invalid (zero-width) one in the draft's own
+  // coordinates.
+  const QRectF caret = QApplication::inputMethod()->cursorRectangle();
+  const QRectF box(QPointF(draft->mapTo(&editor, QPoint(0, 0))),
+                   QSizeF(draft->size()));
+  if (!caret.isValid() || !box.intersects(caret)) {
+    error = QStringLiteral(
+                "Input method caret rectangle %1,%2 %3x%4 is not on the "
+                "draft at %5,%6 %7x%8")
+                .arg(caret.x())
+                .arg(caret.y())
+                .arg(caret.width())
+                .arg(caret.height())
+                .arg(box.x())
+                .arg(box.y())
+                .arg(box.width())
+                .arg(box.height());
+    return false;
+  }
+  editor.close();
+  return true;
+}
+
 /** The draft's cream pill sits exactly where the committed pill lands. */
 bool runDraftPillStaysPutCheck(QApplication &application, QString &error) {
   CaptureData capture;
@@ -4262,6 +4312,120 @@ bool runDraftViewLockCheck(QApplication &application, QString &error) {
     return false;
   }
   editor.close();
+  return true;
+}
+
+/** `--file` and `--pin` read a same-name .json beside the image as its
+ *  operation log. Another program's report.json beside report.png is not
+ *  one: the image must still open (plain), and so must editing its pin.
+ *  omasnap's own log there is still restored, and a broken one still fails. */
+bool runForeignSidecarChecks(QString &error) {
+  const QTemporaryDir files;
+  const QTemporaryDir runtime;
+  if (!files.isValid() || !runtime.isValid()) {
+    error = QStringLiteral("Could not create the sidecar fixture folders");
+    return false;
+  }
+  const QByteArray previousRuntime = qgetenv("XDG_RUNTIME_DIR");
+  qputenv("XDG_RUNTIME_DIR", QFile::encodeName(runtime.path()));
+  const auto restoreRuntime = qScopeGuard([previousRuntime] {
+    if (previousRuntime.isNull())
+      qunsetenv("XDG_RUNTIME_DIR");
+    else
+      qputenv("XDG_RUNTIME_DIR", previousRuntime);
+  });
+  QImage image(400, 300, QImage::Format_RGB32);
+  image.fill(QColor(30, 60, 90));
+  const QDir folder(files.path());
+  const auto writeBytes = [](const QString &path, const QByteArray &bytes) {
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+  };
+  struct Foreign {
+    const char *name;
+    QByteArray json;
+  };
+  for (const Foreign &foreign : {
+           Foreign{"report", "{\"title\":\"quarterly report\",\"rows\":3}\n"},
+           Foreign{"list", "[1, 2, 3]\n"},
+           Foreign{"delta", "{\"ops\":[{\"insert\":\"hello\\n\"}]}\n"}}) {
+    const QString png =
+        folder.filePath(QString::fromLatin1(foreign.name) + QStringLiteral(".png"));
+    if (!image.save(png) || !writeBytes(operationLogPath(png), foreign.json)) {
+      error = QStringLiteral("Could not write the foreign sidecar fixture");
+      return false;
+    }
+    OperationLog log;
+    QString loadError;
+    if (!loadSidecarOperationLog(png, log, loadError) || !log.ops.isEmpty() ||
+        log.previewSize.isValid()) {
+      error = QStringLiteral("An unrelated %1.json stopped %1.png from opening: %2")
+                  .arg(QString::fromLatin1(foreign.name), loadError);
+      return false;
+    }
+    QString pinError;
+    if (!copyPinDocument(png, pinError)) {
+      error = QStringLiteral("An unrelated %1.json stopped editing a pin of "
+                             "%1.png: %2")
+                  .arg(QString::fromLatin1(foreign.name), pinError);
+      return false;
+    }
+  }
+  // omasnap's own log beside an image is still restored...
+  const QString own = folder.filePath(QStringLiteral("own.png"));
+  OperationLog ownLog;
+  ownLog.previewSize = {200, 150};
+  QString saveError;
+  if (!image.save(own) ||
+      !saveOperationLog(operationLogPath(own), ownLog, saveError)) {
+    error = QStringLiteral("Could not write the omasnap sidecar fixture: %1")
+                .arg(saveError);
+    return false;
+  }
+  OperationLog restored;
+  QString loadError;
+  if (!loadSidecarOperationLog(own, restored, loadError) ||
+      restored.previewSize != QSize(200, 150)) {
+    error = QStringLiteral("omasnap's own sidecar log was not restored: %1")
+                .arg(loadError);
+    return false;
+  }
+  // ...and a broken one is still reported rather than silently dropped.
+  const QString broken = folder.filePath(QStringLiteral("broken.png"));
+  if (!image.save(broken) ||
+      !writeBytes(operationLogPath(broken),
+                  "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"background\","
+                  "\"style\":\"no-such-style\"}]}\n")) {
+    error = QStringLiteral("Could not write the broken sidecar fixture");
+    return false;
+  }
+  OperationLog brokenLog;
+  if (loadSidecarOperationLog(broken, brokenLog, loadError)) {
+    error = QStringLiteral("A broken omasnap sidecar log was silently ignored");
+    return false;
+  }
+  // So is one cut short or emptied, which no longer parses as JSON, and one
+  // from another version of omasnap.
+  for (const Foreign &damaged : {
+           Foreign{"truncated",
+                   "{\"version\":1,\"index\":1,\"ops\":[{\"type\":\"annot"},
+           Foreign{"empty", ""},
+           Foreign{"newer", "{\"version\":2,\"index\":0,\"ops\":[]}\n"}}) {
+    const QString png =
+        folder.filePath(QString::fromLatin1(damaged.name) + QStringLiteral(".png"));
+    if (!image.save(png) || !writeBytes(operationLogPath(png), damaged.json)) {
+      error = QStringLiteral("Could not write the damaged sidecar fixture");
+      return false;
+    }
+    OperationLog damagedLog;
+    QString damagedError;
+    if (loadSidecarOperationLog(png, damagedLog, damagedError) ||
+        damagedError.isEmpty()) {
+      error = QStringLiteral("A %1 omasnap sidecar log was silently ignored")
+                  .arg(QString::fromLatin1(damaged.name));
+      return false;
+    }
+  }
   return true;
 }
 
@@ -12792,6 +12956,10 @@ int main(int argc, char **argv) {
     qCritical().noquote() << snapshotError;
     return 65;
   }
+  if (!runForeignSidecarChecks(snapshotError)) {
+    qCritical().noquote() << snapshotError;
+    return 232;
+  }
   if (!runEditorHandoffRoundTrip(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 6;
@@ -12803,6 +12971,10 @@ int main(int argc, char **argv) {
   if (!runNativeCaretHiddenCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 121;
+  }
+  if (!runInputMethodCaretCheck(application, snapshotError)) {
+    qWarning().noquote() << snapshotError;
+    return 236;
   }
   if (!runDraftViewLockCheck(application, snapshotError)) {
     qWarning().noquote() << snapshotError;
@@ -14166,6 +14338,10 @@ int main(int argc, char **argv) {
   if (!runInstanceLockSmoke(instanceError)) {
     qWarning().noquote() << instanceError;
     return 85;
+  }
+  if (!runInstanceLockReusedPidSmoke(instanceError)) {
+    qWarning().noquote() << instanceError;
+    return 233;
   }
   if (!runChromeThemeSmoke(outputRoot, snapshotError)) {
     qWarning().noquote() << snapshotError;

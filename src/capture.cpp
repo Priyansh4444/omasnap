@@ -2566,7 +2566,10 @@ bool saveOperationLog(const QString &path, const OperationLog &log,
   return true;
 }
 
-bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
+bool loadOperationLog(const QString &path, OperationLog &log, QString &error,
+                      bool *notOperationLog) {
+  if (notOperationLog)
+    *notOperationLog = false;
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     error = QStringLiteral("Could not read operation log: %1").arg(path);
@@ -2577,11 +2580,21 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
     error = QStringLiteral("Could not parse operation log: %1")
                 .arg(parseError.errorString());
+    // Well-formed JSON that is not an object is another program's; text that
+    // does not parse may be omasnap's own log, cut short.
+    if (notOperationLog)
+      *notOperationLog = parseError.error == QJsonParseError::NoError;
     return false;
   }
   const QJsonObject root = document.object();
-  if (root.value(QStringLiteral("version")).toInt() != 1) {
+  if (root.value(QStringLiteral("version")).toInt() != 1 ||
+      !root.value(QStringLiteral("ops")).isArray()) {
     error = QStringLiteral("Unsupported operation log version");
+    // Every log omasnap writes has a numeric version and an ops array; an
+    // object without both is some other program's JSON sharing the name.
+    if (notOperationLog)
+      *notOperationLog = !root.value(QStringLiteral("version")).isDouble() ||
+                         !root.value(QStringLiteral("ops")).isArray();
     return false;
   }
   OperationLog loaded;
@@ -2607,6 +2620,30 @@ bool loadOperationLog(const QString &path, OperationLog &log, QString &error) {
   }
   loaded.index = std::clamp(loaded.index, 0, static_cast<int>(loaded.ops.size()));
   log = std::move(loaded);
+  return true;
+}
+
+bool loadSidecarOperationLog(const QString &imagePath, OperationLog &log,
+                             QString &error) {
+  const QString sidecar = operationLogPath(imagePath);
+  if (!QFile::exists(sidecar))
+    return true;
+  // The sidecar is only a naming convention: report.png opened from a
+  // download folder can sit beside another program's report.json. That file
+  // is not this image's edit history, so open the image plain instead of
+  // refusing it. A damaged omasnap log is still an error.
+  bool notOperationLog = false;
+  OperationLog loaded;
+  if (loadOperationLog(sidecar, loaded, error, &notOperationLog)) {
+    log = std::move(loaded);
+    return true;
+  }
+  if (!notOperationLog)
+    return false;
+  qWarning().noquote() << QStringLiteral("Ignoring %1: not an omasnap "
+                                         "operation log")
+                              .arg(sidecar);
+  error.clear();
   return true;
 }
 
