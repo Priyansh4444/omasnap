@@ -14276,6 +14276,10 @@ int main(int argc, char **argv) {
     qWarning().noquote() << instanceError;
     return 85;
   }
+  if (!runInstanceLockReusedPidSmoke(instanceError)) {
+    qWarning().noquote() << instanceError;
+    return 233;
+  }
   if (!runChromeThemeSmoke(outputRoot, snapshotError)) {
     qWarning().noquote() << snapshotError;
     return 140;
