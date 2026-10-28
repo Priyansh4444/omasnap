@@ -7,6 +7,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Open the input method's candidate window under the text caret instead of at
+  the editor's top-left corner, so fcitx5 users see their Chinese, Japanese, or
+  Korean candidates next to the text they are typing.
 - Open an image even when another program's JSON with the same name sits
   beside it (`report.png` next to `report.json`), for `--file` and for editing
   or sharing a `--pin`, instead of failing on it as a broken edit history.
